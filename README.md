@@ -77,19 +77,19 @@ Common updates:
 
 Add screenshots here after reviewing the local design.
 
-## GitLab Pages Deployment
+## GitHub Pages Deployment
 
-The included `.gitlab-ci.yml` builds and publishes the portfolio with GitLab Pages whenever a commit is pushed to the default branch.
+The included GitHub Actions workflow builds and publishes the portfolio with GitHub Pages whenever a commit is pushed to `main`.
 
-1. Create a public blank project on GitLab.
-2. Add the GitLab project as the `origin` remote and push the `main` branch.
-3. Open **Build > Pipelines** in GitLab and wait for the `pages` job to pass.
-4. Find the public site URL under **Deploy > Pages**.
+1. Create a public empty repository on GitHub.
+2. Add the GitHub repository as the `origin` remote and push the `main` branch.
+3. In the repository, open **Settings > Pages** and select **GitHub Actions** under **Build and deployment**.
+4. Open **Actions** and wait for the deployment workflow to pass.
 
-For a project named `portfolio`, the URL normally follows this format:
+For a repository named `portfolio`, the URL normally follows this format:
 
 ```text
-https://<gitlab-username>.gitlab.io/portfolio/
+https://<github-username>.github.io/portfolio/
 ```
 
-After publishing, update the canonical URL, Open Graph URL, `public/robots.txt`, and `public/sitemap.xml` with the final GitLab Pages address.
+After publishing, update the canonical URL, Open Graph URL, `public/robots.txt`, and `public/sitemap.xml` with the final GitHub Pages address.
