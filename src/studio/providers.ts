@@ -2,6 +2,8 @@ export type CreationMode =
   | 'prompt'
   | 'image-story'
   | 'image-audio'
+  | 'image-video'
+  | 'video-story'
   | 'ai-image'
   | 'funny'
   | 'story';
