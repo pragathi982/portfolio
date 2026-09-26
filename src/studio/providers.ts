@@ -63,18 +63,20 @@ export class DevelopmentLLMProvider implements LLMProvider {
   async generateStory(prompt: string, mode: CreationMode, dialect: string): Promise<StoryResult> {
     await sleep(500);
     const funny = mode === 'funny';
+    const idea = prompt.trim();
+    const title = idea.length > 34 ? `${idea.slice(0, 34)}...` : idea;
 
     return {
-      title: funny ? 'బిర్యానీ బిల్లు ఎవరిది?' : 'టీ కొట్టు దగ్గర ఒక కథ',
+      title: funny ? 'బిర్యానీ బిల్లు ఎవరిది?' : title,
       genre: funny ? 'Original Telugu comedy' : 'Cinematic slice of life',
-      summary: `${dialect} శైలిలో రూపొందించిన కల్పిత కథ. మీ ఆలోచన: ${prompt}`,
+      summary: `${dialect} శైలిలో మీ ఆలోచన ఆధారంగా రూపొందించిన కల్పిత కథ: ${idea}`,
       characters: ['రాజు - మాటకారి స్నేహితుడు', 'బాలు - ప్రశాంతంగా పంచ్ ఇచ్చే స్నేహితుడు'],
       scenes: [
         {
           id: crypto.randomUUID(),
           title: 'సాయంత్రపు టీ',
-          description: 'సూర్యాస్తమయంలో గ్రామం చివర ఉన్న టీ కొట్టు. ఇద్దరు స్నేహితులు వేడి టీతో కబుర్లు మొదలుపెడతారు.',
-          dialogue: 'రాజు: ఈ ఊరిలో నాకంటే తెలివైనవాడు లేడు! బాలు: అవునా? అయితే నిన్నటి టీ బిల్లు ఎవరు కట్టారో చెప్పు.',
+          description: `ప్రారంభ సన్నివేశం మీ ఆలోచనను పరిచయం చేస్తుంది: ${idea}`,
+          dialogue: `మన కథ ఇలా మొదలవుతుంది. ${idea}`,
           camera: 'Slow push-in',
           duration: 5,
           image: demoImages[0],
@@ -82,8 +84,8 @@ export class DevelopmentLLMProvider implements LLMProvider {
         {
           id: crypto.randomUUID(),
           title: 'పండుగ సందడి',
-          description: 'వీధంతా దీపాలు, సంగీతం. మాటల మధ్య చిన్న అపార్థం పెద్ద నవ్వుగా మారుతుంది.',
-          dialogue: 'రాజు: బిల్లు నేను కట్టాననుకున్నా! బాలు: నువ్వు ఫోటోకి పోజు ఇచ్చావు, బిల్లు కాదు.',
+          description: 'కథ మధ్యలో పాత్రల భావాలు, పరిసరాలు మరియు ముఖ్యమైన మలుపు సినిమాటిక్‌గా కనిపిస్తాయి.',
+          dialogue: `ఈ క్షణంలో కథ కొత్త మలుపు తీసుకుంటుంది. ${idea}`,
           camera: 'Wide pan',
           duration: 5,
           image: demoImages[1],
@@ -91,8 +93,8 @@ export class DevelopmentLLMProvider implements LLMProvider {
         {
           id: crypto.randomUUID(),
           title: 'అసలు ట్విస్ట్',
-          description: 'వర్షం మొదలవుతుంది. టీ కొట్టు యజమాని పాత బాకీల పుస్తకం తీస్తాడు.',
-          dialogue: 'యజమాని: మీ ఇద్దరి పేర్లు కాదు బాబూ... గత నెల నుంచి మొత్తం ఊరి పేరు ఉంది!',
+          description: 'చివరి సన్నివేశం కథలోని భావాన్ని ముగింపుతో కలిపి చూపిస్తుంది.',
+          dialogue: `చివరికి ఈ కథ మనకు ఒక అందమైన జ్ఞాపకాన్ని మిగులుస్తుంది. ${idea}`,
           camera: 'Reaction close-up',
           duration: 5,
           image: demoImages[3],
