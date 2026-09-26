@@ -1,95 +1,74 @@
-# Bhavanam Venkata Pragathi Portfolio
+# Telugu AI Studio
 
-A modern personal portfolio for Bhavanam Venkata Pragathi, positioning her for Data Analyst, AI/ML Developer, and GenAI Developer opportunities.
+A Telugu-first cinematic video creation studio. The current release is a polished browser MVP with an explicit development provider; it does not claim that mock story or image requests are live AI calls.
 
-## Features
+## What works now
 
-- Premium dark theme with data and AI visual language
-- Responsive React + TypeScript + Vite application
-- Tailwind CSS component styling
-- Sticky navigation with mobile menu and active-section highlighting
-- Strong project section for ML, Gemini, LLaMA, and RAG work
-- Privacy-first contact section using email and LinkedIn
-- SEO metadata, Open Graph image, favicon, robots.txt, and sitemap.xml
-- Centralized portfolio content in `src/data/portfolioData.ts`
+- Six creation modes and Telugu/English prompt input
+- Editable Telugu story and reorderable scene breakdown
+- Four generated cinematic demo image candidates
+- Image/audio upload validation and microphone recording
+- Telugu system-voice preview with speed and voice controls
+- Lightweight timeline, subtitle controls, aspect ratios, and project history
+- Real client-side animated WebM rendering and video/script/subtitle/audio downloads
+- Responsive desktop and mobile workspace
 
-## Technology Stack
+## Architecture
 
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- Lucide React icons
+The client is React 19, TypeScript, Vite, Tailwind CSS, and Lucide icons. Provider contracts live in `src/studio/providers.ts`. The development provider returns clearly labelled mock story/image data. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the proposed PostgreSQL, Redis worker, object storage, FFmpeg, and SSE production design.
 
-## Project Structure
+## Setup
 
-```text
-src/
-  components/
-  data/
-  hooks/
-  sections/
-  types/
-  styles.css
-public/
-  favicon.svg
-  og-image.svg
-  robots.txt
-  sitemap.xml
-```
-
-## Local Development
+Prerequisites: Node.js 20+ and npm.
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Production Build
+Open `http://localhost:5173`. Production checks:
 
 ```bash
+npm run lint
 npm run build
 npm run preview
 ```
 
-## Linting
+## Using the MVP
 
-```bash
-npm run lint
-```
+1. Select a creation mode and enter a Telugu or English concept.
+2. Choose dialect, duration, format, and optional image/audio input.
+3. Generate and edit the development story draft.
+4. Pick one of four visual directions.
+5. Preview system Telugu speech, record narration, or upload authorized audio.
+6. Adjust the editor and render. Keep the tab active while browser rendering runs.
+7. Download the WebM video, Telugu script, SRT subtitles, and optional audio.
 
-## Customization
+Chrome or Edge provides the most reliable `MediaRecorder`, canvas capture, and microphone support.
 
-Update portfolio content in:
+## Environment
 
-```text
-src/data/portfolioData.ts
-```
+Copy `.env.example` when adding the backend. Values prefixed with `VITE_` are public browser configuration. API keys, database credentials, session secrets, and storage credentials must be server-only.
 
-Common updates:
+## Production implementation phases
 
-- Add a GitHub profile URL by setting `profile.github`
-- Add project repository or demo links in each project object
-- Replace the resume file in `public/` with the final PDF named `Bhavanam_Venkata_Pragathi_Resume.pdf`
-- Update canonical, Open Graph, robots, and sitemap URLs after choosing the final deployed domain
+1. Add the API, authentication, PostgreSQL schema, signed uploads, and project authorization.
+2. Add Redis jobs, idempotency, retries, cancellation, usage tracking, and SSE progress.
+3. Implement live LLM, image, Telugu TTS, speech-to-text, and video provider adapters.
+4. Add FFmpeg workers for H.264 MP4, transitions, subtitle burning, audio ducking, and 720p/1080p outputs.
+5. Add integration tests for validation, ownership, provider failures, jobs, uploads, scenes, and downloads.
 
-## Screenshots
+## FFmpeg production requirements
 
-Add screenshots here after reviewing the local design.
+Install a recent FFmpeg build on render workers and verify H.264/AAC encoders. Workers should download project-scoped assets into an isolated job directory, compose deterministically, upload the result, and remove temporary files after success or failure.
 
-## GitHub Pages Deployment
+## Troubleshooting
 
-The included GitHub Actions workflow builds and publishes the portfolio with GitHub Pages whenever a commit is pushed to `main`.
+- No Telugu voice: install a Telugu system voice or configure a production TTS provider.
+- Microphone denied: allow microphone access for the site or upload audio.
+- Render fails: use current Chrome/Edge and keep the tab active.
+- GitHub Pages: only the browser MVP can run there. Server AI, databases, queues, and FFmpeg require a separate backend deployment.
 
-1. Create a public empty repository on GitHub.
-2. Add the GitHub repository as the `origin` remote and push the `main` branch.
-3. In the repository, open **Settings > Pages** and select **GitHub Actions** under **Build and deployment**.
-4. Open **Actions** and wait for the deployment workflow to pass.
+## Demo assets
 
-For a repository named `portfolio`, the URL normally follows this format:
-
-```text
-https://<github-username>.github.io/portfolio/
-```
-
-After publishing, update the canonical URL, Open Graph URL, `public/robots.txt`, and `public/sitemap.xml` with the final GitHub Pages address.
+The four project images were generated with the built-in image generation tool as fictional, culturally respectful cinematic Telugu story scenes with no text, logos, or watermarks.
