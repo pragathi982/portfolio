@@ -224,7 +224,7 @@ export default function App() {
             {stage === 'story' && story && <Story story={story} setStory={setStory} updateScene={updateScene} dragged={dragged} drop={drop} regenerate={generate} next={() => setStage(usesUploadedImageForVideo ? 'voice' : 'images')} nextLabel={usesUploadedImageForVideo ? 'Continue with my image' : 'Continue to images'} />}
             {stage === 'images' && story && <Images choice={choice} setChoice={setChoice} setPreview={setPreview} setStatus={setStatus} back={() => setStage('story')} next={() => { setStory({ ...story, scenes: story.scenes.map((scene, index) => ({ ...scene, image: demoImages[(choice + index) % 4] })) }); setStage('voice'); }} />}
             {stage === 'voice' && story && <Voice story={story} updateScene={updateScene} speak={speak} voice={voice} setVoice={setVoice} voiceStyle={voiceStyle} setVoiceStyle={setVoiceStyle} speed={speed} setSpeed={setSpeed} recording={recording} startRecording={startRecording} stop={() => recorder.current?.stop()} audio={audio} audioName={audioName} audioUpload={audioUpload} systemVoicePreviewed={systemVoicePreviewed} next={() => setStage('editor')} />}
-            {stage === 'editor' && story && <Editor story={story} format={format} subtitle={subtitle} setSubtitle={setSubtitle} speak={speak} status={status} hasAudio={Boolean(audio)} usesSystemVoice={systemVoicePreviewed && !audio} rendering={isRendering} renderProgress={renderProgress} render={render} />}
+            {stage === 'editor' && story && <Editor story={story} format={format} subtitle={subtitle} setSubtitle={setSubtitle} speak={speak} status={status} hasAudio={Boolean(audio)} usesSystemVoice={systemVoicePreviewed && !audio} recording={recording} startRecording={startRecording} stopRecording={() => recorder.current?.stop()} rendering={isRendering} renderProgress={renderProgress} render={render} />}
             {stage === 'export' && story && <Export story={story} videoUrl={videoUrl} audio={audio} audioName={audioName} script={script} total={totalDuration} format={format} reset={() => { setStory(null); setStage('idea'); setVideoUrl(''); }} />}
           </div>
         </section>
@@ -248,7 +248,32 @@ function Voice(p: VoiceProps) { const canContinue = Boolean(p.audio) || p.system
 
 function AudioPreview({ audio, name }: { audio: Blob; name: string }) { const url = useMemo(() => URL.createObjectURL(audio), [audio]); useEffect(() => () => URL.revokeObjectURL(url), [url]); return <div className="audio-ready"><AudioLines /><span><b>Audio ready</b><small>{name}</small><audio controls src={url} /></span><Check /></div>; }
 
-function Editor(p: { story: StoryResult; format: string; subtitle: string; setSubtitle: (v: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; rendering: boolean; renderProgress: number; render: () => void }) { return <div className="editor"><div className={`video-preview f-${p.format.replace(':', '')}`}><img src={p.story.scenes[0].image} alt="Preview" /><div />{p.subtitle !== 'None' && <p>{p.story.scenes[0].dialogue}</p>}<button onClick={p.speak}><Play fill="currentColor" /></button></div><aside className="settings"><h3>Finishing</h3><label>Subtitles<select value={p.subtitle} onChange={(e) => p.setSubtitle(e.target.value)}><option>None</option><option>Telugu</option><option>English</option><option>Telugu + English</option></select></label><label>Quality<div className="segments"><button className="active">720p</button><button onClick={() => undefined}>1080p</button></div></label><label>Voice volume<input type="range" defaultValue="90" /></label><label>Music volume<input type="range" defaultValue="22" /></label></aside><div className="timeline">{[[Film, 'Video'], [Mic, 'Voice'], [Music2, 'Music'], [Subtitles, 'Subtitles']].map(([Icon, label], row) => <div className="track" key={label as string}><span>{typeof Icon !== 'string' && <Icon size={15} />} {label as string}</span><div>{p.story.scenes.map((scene, i) => <i className={`clip c${row}`} style={{ flex: scene.duration }} key={scene.id}>{row === 0 ? `S${i + 1}` : ''}</i>)}</div></div>)}</div><footer><span>{p.hasAudio ? p.status : p.usesSystemVoice ? 'Preview works, but download needs recorded/uploaded audio. Return to Voice and add audio.' : 'Return to Voice and record or upload Telugu audio.'}{p.rendering && <i className="render-bar"><b style={{ width: `${p.renderProgress}%` }} /></i>}</span><button className="primary" disabled={p.rendering || !p.hasAudio} onClick={p.render}>{p.rendering ? <LoaderCircle className="spin" /> : <Clapperboard />}{p.rendering ? `Rendering ${p.renderProgress}%` : 'Render with audio'}</button></footer></div>; }
+type EditorProps = { story: StoryResult; format: string; subtitle: string; setSubtitle: (value: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; recording: boolean; startRecording: () => void; stopRecording: () => void; rendering: boolean; renderProgress: number; render: () => void };
+function Editor(p: EditorProps) {
+  return <div className="editor">
+    <div className={`video-preview f-${p.format.replace(':', '')}`}>
+      <img src={p.story.scenes[0].image} alt="Preview" />
+      <div />
+      {p.subtitle !== 'None' && <p>{p.story.scenes[0].dialogue}</p>}
+      <button onClick={p.speak}><Play fill="currentColor" /></button>
+    </div>
+    <aside className="settings">
+      <h3>Finishing</h3>
+      <label>Subtitles<select value={p.subtitle} onChange={(event) => p.setSubtitle(event.target.value)}><option>None</option><option>Telugu</option><option>English</option><option>Telugu + English</option></select></label>
+      <label>Quality<div className="segments"><button className="active">720p</button><button onClick={() => undefined}>1080p</button></div></label>
+      <label>Voice volume<input type="range" defaultValue="90" /></label>
+      <label>Music volume<input type="range" defaultValue="22" /></label>
+      {!p.hasAudio && (p.recording
+        ? <button className="record active" onClick={p.stopRecording}><Square /> Stop recording</button>
+        : <button className="record" onClick={p.startRecording}><Mic /> Record voice now</button>)}
+    </aside>
+    <div className="timeline">{[[Film, 'Video'], [Mic, 'Voice'], [Music2, 'Music'], [Subtitles, 'Subtitles']].map(([Icon, label], row) => <div className="track" key={label as string}><span>{typeof Icon !== 'string' && <Icon size={15} />} {label as string}</span><div>{p.story.scenes.map((scene, index) => <i className={`clip c${row}`} style={{ flex: scene.duration }} key={scene.id}>{row === 0 ? `S${index + 1}` : ''}</i>)}</div></div>)}</div>
+    <footer>
+      <span>{p.hasAudio ? 'Recorded audio is ready. You can render now.' : p.usesSystemVoice ? 'Preview voice cannot be exported. Use Record voice now, then Stop recording.' : 'Use Record voice now to create the audio track.'}{p.rendering && <i className="render-bar"><b style={{ width: `${p.renderProgress}%` }} /></i>}</span>
+      <button className="primary" disabled={p.rendering || !p.hasAudio} onClick={p.render}>{p.rendering ? <LoaderCircle className="spin" /> : <Clapperboard />}{p.rendering ? `Rendering ${p.renderProgress}%` : 'Render with audio'}</button>
+    </footer>
+  </div>;
+}
 
 function Export(p: { story: StoryResult; videoUrl: string; audio: Blob | null; audioName: string; script: string; total: number; format: string; reset: () => void }) { const audioUrl = useMemo(() => p.audio ? URL.createObjectURL(p.audio) : '', [p.audio]); useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]); return <div className="export"><div className="result">{p.videoUrl ? <video controls src={p.videoUrl} /> : <img src={p.story.scenes[0].image} alt="Result" />}<span>AI-assisted content</span></div><section><i><Check /></i><em>VIDEO READY</em><h2>{p.story.title}</h2><p>{p.total} sec · {p.format} · 720p · WebM browser render</p><div>{p.videoUrl && <a className="primary" href={p.videoUrl} download="telugu-ai-video.webm"><Download /> Download video</a>}<button className="secondary" onClick={() => downloadText(p.script, 'telugu-script.txt')}><Download /> Telugu script</button><button className="secondary" onClick={() => downloadText(srt(p.story.scenes), 'telugu-subtitles.srt')}><Subtitles /> Subtitles</button>{audioUrl && <a className="secondary" href={audioUrl} download={p.audioName}><AudioLines /> Audio</a>}</div><button className="text-button" onClick={p.reset}>Create another video <ChevronRight /></button></section></div>; }
 
