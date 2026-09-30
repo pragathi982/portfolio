@@ -107,18 +107,102 @@ export default function App() {
 
   const render = async () => {
     if (!story) return;
-    setIsRendering(true); setRenderProgress(1); setStatus('వీడియో రెండర్ అవుతోంది...'); if (videoUrl) URL.revokeObjectURL(videoUrl);
+    if (!audio) { setStatus('Downloaded videoలో voice కోసం Voice stepలో audio record లేదా upload చేయండి.'); return; }
+    setIsRendering(true);
+    setRenderProgress(1);
+    setStatus('వీడియో మరియు ఆడియో రెండర్ అవుతున్నాయి...');
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl('');
     try {
       const dimensions = format === '9:16' ? [720, 1280] : format === '1:1' ? [720, 720] : [1280, 720];
-      const canvas = document.createElement('canvas'); [canvas.width, canvas.height] = dimensions; const ctx = canvas.getContext('2d'); if (!ctx) throw Error();
-      const images = await Promise.all(story.scenes.map((scene) => loadImage(scene.image))); const stream = canvas.captureStream(30); const output = new MediaStream(stream.getVideoTracks());
-      let audioElement: HTMLAudioElement | null = null; let audioContext: AudioContext | null = null;
-      if (audio) { audioElement = new Audio(URL.createObjectURL(audio)); audioContext = new AudioContext(); const source = audioContext.createMediaElementSource(audioElement); const destination = audioContext.createMediaStreamDestination(); source.connect(destination); source.connect(audioContext.destination); destination.stream.getAudioTracks().forEach((track) => output.addTrack(track)); }
-      const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(MediaRecorder.isTypeSupported) || '';
-      const media = new MediaRecorder(output, mime ? { mimeType: mime } : undefined); const pieces: Blob[] = []; media.ondataavailable = (e) => e.data.size && pieces.push(e.data); const done = new Promise<void>((resolve) => { media.onstop = () => resolve(); }); const length = Math.min(totalDuration, 18); const start = performance.now(); media.start(1000); await audioElement?.play().catch(() => undefined);
-      const draw = () => { const elapsed = (performance.now() - start) / 1000; const amount = Math.min(elapsed / length, 1); const raw = amount * story.scenes.length; const index = Math.min(Math.floor(raw), story.scenes.length - 1); const local = raw - index; const image = images[index]; const scene = story.scenes[index]; const scale = Math.max(canvas.width / image.width, canvas.height / image.height) * (1.03 + local * .07); const w = image.width * scale; const h = image.height * scale; const direction = index % 2 === 0 ? -1 : 1; const x = (canvas.width - w) / 2 + direction * (local - .5) * canvas.width * .06; const y = (canvas.height - h) / 2 + Math.sin(local * Math.PI) * canvas.height * .018; ctx.drawImage(image, x, y, w, h); const shade = ctx.createLinearGradient(0, canvas.height * .5, 0, canvas.height); shade.addColorStop(0, 'transparent'); shade.addColorStop(1, 'rgba(0,0,0,.88)'); ctx.fillStyle = shade; ctx.fillRect(0, 0, canvas.width, canvas.height); if (subtitle !== 'None') { ctx.textAlign = 'center'; ctx.font = `700 ${Math.max(28, canvas.width * .035)}px Inter, Nirmala UI, sans-serif`; ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 7; wrap(ctx, scene.dialogue, canvas.width * .82).forEach((line, i) => { const yText = canvas.height * .82 + i * 44; ctx.strokeText(line, canvas.width / 2, yText); ctx.fillText(line, canvas.width / 2, yText); }); } setRenderProgress(Math.round(amount * 100)); if (amount < 1) requestAnimationFrame(draw); else media.stop(); };
-      draw(); await done; audioElement?.pause(); await audioContext?.close(); const blob = new Blob(pieces, { type: mime || 'video/webm' }); setVideoUrl(URL.createObjectURL(blob)); setStage('export'); setStatus(audio ? 'తెలుగు ఆడియోతో వీడియో సిద్ధమైంది!' : 'వీడియో సిద్ధమైంది. ఆడియో జోడిస్తే వాయిస్ కూడా వస్తుంది.'); setProjects((items) => items.map((item, i) => i === 0 ? { ...item, status: 'Completed' } : item));
-    } catch { setStatus('Chrome లేదా Edgeలో రెండర్‌ను మళ్లీ ప్రయత్నించండి.'); } finally { setIsRendering(false); }
+      const canvas = document.createElement('canvas');
+      [canvas.width, canvas.height] = dimensions;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas is unavailable');
+      const images = await Promise.all(story.scenes.map((scene) => loadImage(scene.image)));
+      const drawFrame = (amount: number) => {
+        const raw = amount * story.scenes.length;
+        const index = Math.min(Math.floor(raw), story.scenes.length - 1);
+        const local = Math.min(raw - index, 1);
+        const image = images[index];
+        const scene = story.scenes[index];
+        const scale = Math.max(canvas.width / image.width, canvas.height / image.height) * (1.03 + local * .07);
+        const width = image.width * scale;
+        const height = image.height * scale;
+        const direction = index % 2 === 0 ? -1 : 1;
+        const x = (canvas.width - width) / 2 + direction * (local - .5) * canvas.width * .06;
+        const y = (canvas.height - height) / 2 + Math.sin(local * Math.PI) * canvas.height * .018;
+        ctx.fillStyle = '#080a08';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, x, y, width, height);
+        const shade = ctx.createLinearGradient(0, canvas.height * .5, 0, canvas.height);
+        shade.addColorStop(0, 'transparent');
+        shade.addColorStop(1, 'rgba(0,0,0,.88)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (subtitle !== 'None') {
+          ctx.textAlign = 'center';
+          ctx.font = `700 ${Math.max(28, canvas.width * .035)}px Inter, Nirmala UI, sans-serif`;
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 7;
+          wrap(ctx, scene.dialogue, canvas.width * .82).forEach((line, lineIndex) => {
+            const textY = canvas.height * .82 + lineIndex * 44;
+            ctx.strokeText(line, canvas.width / 2, textY);
+            ctx.fillText(line, canvas.width / 2, textY);
+          });
+        }
+      };
+
+      drawFrame(0);
+      const canvasStream = canvas.captureStream(30);
+      const output = new MediaStream(canvasStream.getVideoTracks());
+      const audioUrl = URL.createObjectURL(audio);
+      const audioElement = new Audio(audioUrl);
+      audioElement.preload = 'auto';
+      await new Promise<void>((resolve, reject) => { const timeout = window.setTimeout(() => reject(new Error('Audio loading timed out')), 5000); audioElement.oncanplay = () => { window.clearTimeout(timeout); resolve(); }; audioElement.onerror = () => { window.clearTimeout(timeout); reject(new Error('Audio could not be loaded')); }; audioElement.load(); });
+      const audioContext = new AudioContext();
+      await audioContext.resume();
+      const source = audioContext.createMediaElementSource(audioElement);
+      const destination = audioContext.createMediaStreamDestination();
+      source.connect(destination);
+      source.connect(audioContext.destination);
+      destination.stream.getAudioTracks().forEach((track) => output.addTrack(track));
+      const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || '';
+      const media = new MediaRecorder(output, mime ? { mimeType: mime, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 } : undefined);
+      const pieces: Blob[] = [];
+      media.ondataavailable = (event) => { if (event.data.size) pieces.push(event.data); };
+      const done = new Promise<void>((resolve, reject) => { media.onstop = () => resolve(); media.onerror = () => reject(new Error('Media recorder failed')); });
+      const length = Math.max(3, Math.min(totalDuration, 18));
+      const startedAt = performance.now();
+      media.start(500);
+      await audioElement.play();
+      await new Promise<void>((resolve) => {
+        const draw = () => {
+          const elapsed = (performance.now() - startedAt) / 1000;
+          const amount = Math.min(elapsed / length, 1);
+          drawFrame(amount);
+          setRenderProgress(Math.round(amount * 100));
+          if (amount < 1) requestAnimationFrame(draw);
+          else { media.requestData(); window.setTimeout(() => { media.stop(); resolve(); }, 150); }
+        };
+        requestAnimationFrame(draw);
+      });
+      await done;
+      audioElement.pause();
+      canvasStream.getTracks().forEach((track) => track.stop());
+      output.getTracks().forEach((track) => track.stop());
+      await audioContext.close();
+      URL.revokeObjectURL(audioUrl);
+      const blob = new Blob(pieces, { type: mime || 'video/webm' });
+      if (blob.size < 10_000) throw new Error('Rendered video is empty');
+      const outputUrl = URL.createObjectURL(blob);
+      await new Promise<void>((resolve, reject) => { const test = document.createElement('video'); const timeout = window.setTimeout(() => reject(new Error('Video validation timed out')), 5000); test.onloadeddata = () => { window.clearTimeout(timeout); test.src = ''; resolve(); }; test.onerror = () => { window.clearTimeout(timeout); reject(new Error('Rendered video is not playable')); }; test.src = outputUrl; test.load(); });
+      setVideoUrl(outputUrl);
+      setStage('export');
+      setStatus('తెలుగు ఆడియోతో వీడియో సిద్ధమైంది!');
+      setProjects((items) => items.map((item, index) => index === 0 ? { ...item, status: 'Completed' } : item));
+    } catch (error) { setStatus(error instanceof Error ? `Render failed: ${error.message}. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.` : 'Render failed. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.'); } finally { setIsRendering(false); }
   };
 
   return <div className="studio-app">
@@ -164,7 +248,7 @@ function Voice(p: VoiceProps) { const canContinue = Boolean(p.audio) || p.system
 
 function AudioPreview({ audio, name }: { audio: Blob; name: string }) { const url = useMemo(() => URL.createObjectURL(audio), [audio]); useEffect(() => () => URL.revokeObjectURL(url), [url]); return <div className="audio-ready"><AudioLines /><span><b>Audio ready</b><small>{name}</small><audio controls src={url} /></span><Check /></div>; }
 
-function Editor(p: { story: StoryResult; format: string; subtitle: string; setSubtitle: (v: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; rendering: boolean; renderProgress: number; render: () => void }) { return <div className="editor"><div className={`video-preview f-${p.format.replace(':', '')}`}><img src={p.story.scenes[0].image} alt="Preview" /><div />{p.subtitle !== 'None' && <p>{p.story.scenes[0].dialogue}</p>}<button onClick={p.speak}><Play fill="currentColor" /></button></div><aside className="settings"><h3>Finishing</h3><label>Subtitles<select value={p.subtitle} onChange={(e) => p.setSubtitle(e.target.value)}><option>None</option><option>Telugu</option><option>English</option><option>Telugu + English</option></select></label><label>Quality<div className="segments"><button className="active">720p</button><button onClick={() => undefined}>1080p</button></div></label><label>Voice volume<input type="range" defaultValue="90" /></label><label>Music volume<input type="range" defaultValue="22" /></label></aside><div className="timeline">{[[Film, 'Video'], [Mic, 'Voice'], [Music2, 'Music'], [Subtitles, 'Subtitles']].map(([Icon, label], row) => <div className="track" key={label as string}><span>{typeof Icon !== 'string' && <Icon size={15} />} {label as string}</span><div>{p.story.scenes.map((scene, i) => <i className={`clip c${row}`} style={{ flex: scene.duration }} key={scene.id}>{row === 0 ? `S${i + 1}` : ''}</i>)}</div></div>)}</div><footer><span>{p.hasAudio ? p.status : p.usesSystemVoice ? 'System voice previews here, but browser security cannot embed it in the download.' : 'Return to Voice and select a Telugu voice.'}{p.rendering && <i className="render-bar"><b style={{ width: `${p.renderProgress}%` }} /></i>}</span><button className="primary" disabled={p.rendering} onClick={p.render}>{p.rendering ? <LoaderCircle className="spin" /> : <Clapperboard />}{p.rendering ? `Rendering ${p.renderProgress}%` : p.hasAudio ? 'Render with audio' : 'Render video'}</button></footer></div>; }
+function Editor(p: { story: StoryResult; format: string; subtitle: string; setSubtitle: (v: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; rendering: boolean; renderProgress: number; render: () => void }) { return <div className="editor"><div className={`video-preview f-${p.format.replace(':', '')}`}><img src={p.story.scenes[0].image} alt="Preview" /><div />{p.subtitle !== 'None' && <p>{p.story.scenes[0].dialogue}</p>}<button onClick={p.speak}><Play fill="currentColor" /></button></div><aside className="settings"><h3>Finishing</h3><label>Subtitles<select value={p.subtitle} onChange={(e) => p.setSubtitle(e.target.value)}><option>None</option><option>Telugu</option><option>English</option><option>Telugu + English</option></select></label><label>Quality<div className="segments"><button className="active">720p</button><button onClick={() => undefined}>1080p</button></div></label><label>Voice volume<input type="range" defaultValue="90" /></label><label>Music volume<input type="range" defaultValue="22" /></label></aside><div className="timeline">{[[Film, 'Video'], [Mic, 'Voice'], [Music2, 'Music'], [Subtitles, 'Subtitles']].map(([Icon, label], row) => <div className="track" key={label as string}><span>{typeof Icon !== 'string' && <Icon size={15} />} {label as string}</span><div>{p.story.scenes.map((scene, i) => <i className={`clip c${row}`} style={{ flex: scene.duration }} key={scene.id}>{row === 0 ? `S${i + 1}` : ''}</i>)}</div></div>)}</div><footer><span>{p.hasAudio ? p.status : p.usesSystemVoice ? 'Preview works, but download needs recorded/uploaded audio. Return to Voice and add audio.' : 'Return to Voice and record or upload Telugu audio.'}{p.rendering && <i className="render-bar"><b style={{ width: `${p.renderProgress}%` }} /></i>}</span><button className="primary" disabled={p.rendering || !p.hasAudio} onClick={p.render}>{p.rendering ? <LoaderCircle className="spin" /> : <Clapperboard />}{p.rendering ? `Rendering ${p.renderProgress}%` : 'Render with audio'}</button></footer></div>; }
 
 function Export(p: { story: StoryResult; videoUrl: string; audio: Blob | null; audioName: string; script: string; total: number; format: string; reset: () => void }) { const audioUrl = useMemo(() => p.audio ? URL.createObjectURL(p.audio) : '', [p.audio]); useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]); return <div className="export"><div className="result">{p.videoUrl ? <video controls src={p.videoUrl} /> : <img src={p.story.scenes[0].image} alt="Result" />}<span>AI-assisted content</span></div><section><i><Check /></i><em>VIDEO READY</em><h2>{p.story.title}</h2><p>{p.total} sec · {p.format} · 720p · WebM browser render</p><div>{p.videoUrl && <a className="primary" href={p.videoUrl} download="telugu-ai-video.webm"><Download /> Download video</a>}<button className="secondary" onClick={() => downloadText(p.script, 'telugu-script.txt')}><Download /> Telugu script</button><button className="secondary" onClick={() => downloadText(srt(p.story.scenes), 'telugu-subtitles.srt')}><Subtitles /> Subtitles</button>{audioUrl && <a className="secondary" href={audioUrl} download={p.audioName}><AudioLines /> Audio</a>}</div><button className="text-button" onClick={p.reset}>Create another video <ChevronRight /></button></section></div>; }
 
