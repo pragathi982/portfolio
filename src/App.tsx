@@ -113,13 +113,23 @@ export default function App() {
     setStatus('వీడియో మరియు ఆడియో రెండర్ అవుతున్నాయి...');
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoUrl('');
+    let canvasStream: MediaStream | null = null;
+    let output: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+    let audioElement: HTMLAudioElement | null = null;
+    let sourceAudioUrl = '';
     try {
       const dimensions = format === '9:16' ? [720, 1280] : format === '1:1' ? [720, 720] : [1280, 720];
       const canvas = document.createElement('canvas');
       [canvas.width, canvas.height] = dimensions;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) throw new Error('Canvas is unavailable');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'medium';
       const images = await Promise.all(story.scenes.map((scene) => loadImage(scene.image)));
+      const shade = ctx.createLinearGradient(0, canvas.height * .5, 0, canvas.height);
+      shade.addColorStop(0, 'transparent');
+      shade.addColorStop(1, 'rgba(0,0,0,.88)');
       const drawFrame = (amount: number) => {
         const raw = amount * story.scenes.length;
         const index = Math.min(Math.floor(raw), story.scenes.length - 1);
@@ -135,9 +145,6 @@ export default function App() {
         ctx.fillStyle = '#080a08';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(image, x, y, width, height);
-        const shade = ctx.createLinearGradient(0, canvas.height * .5, 0, canvas.height);
-        shade.addColorStop(0, 'transparent');
-        shade.addColorStop(1, 'rgba(0,0,0,.88)');
         ctx.fillStyle = shade;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         if (subtitle !== 'None') {
@@ -155,45 +162,49 @@ export default function App() {
       };
 
       drawFrame(0);
-      const canvasStream = canvas.captureStream(30);
-      const output = new MediaStream(canvasStream.getVideoTracks());
-      const audioUrl = URL.createObjectURL(audio);
-      const audioElement = new Audio(audioUrl);
-      audioElement.preload = 'auto';
-      await new Promise<void>((resolve, reject) => { const timeout = window.setTimeout(() => reject(new Error('Audio loading timed out')), 5000); audioElement.oncanplay = () => { window.clearTimeout(timeout); resolve(); }; audioElement.onerror = () => { window.clearTimeout(timeout); reject(new Error('Audio could not be loaded')); }; audioElement.load(); });
-      const audioContext = new AudioContext();
+      canvasStream = canvas.captureStream(20);
+      const outputStream = new MediaStream(canvasStream.getVideoTracks());
+      output = outputStream;
+      sourceAudioUrl = URL.createObjectURL(audio);
+      const renderAudio = new Audio(sourceAudioUrl);
+      audioElement = renderAudio;
+      renderAudio.preload = 'auto';
+      await new Promise<void>((resolve, reject) => { const timeout = window.setTimeout(() => reject(new Error('Audio loading timed out')), 5000); renderAudio.oncanplay = () => { window.clearTimeout(timeout); resolve(); }; renderAudio.onerror = () => { window.clearTimeout(timeout); reject(new Error('Audio could not be loaded')); }; renderAudio.load(); });
+      audioContext = new AudioContext();
       await audioContext.resume();
       const source = audioContext.createMediaElementSource(audioElement);
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
-      source.connect(audioContext.destination);
-      destination.stream.getAudioTracks().forEach((track) => output.addTrack(track));
+      destination.stream.getAudioTracks().forEach((track) => outputStream.addTrack(track));
       const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || '';
-      const media = new MediaRecorder(output, mime ? { mimeType: mime, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 } : undefined);
+      const media = new MediaRecorder(outputStream, mime ? { mimeType: mime, videoBitsPerSecond: 2_000_000, audioBitsPerSecond: 96_000 } : undefined);
       const pieces: Blob[] = [];
       media.ondataavailable = (event) => { if (event.data.size) pieces.push(event.data); };
       const done = new Promise<void>((resolve, reject) => { media.onstop = () => resolve(); media.onerror = () => reject(new Error('Media recorder failed')); });
       const length = Math.max(3, Math.min(totalDuration, 18));
       const startedAt = performance.now();
+      let lastFrameAt = 0;
+      let lastProgress = 0;
       media.start(500);
-      await audioElement.play();
+      await renderAudio.play();
       await new Promise<void>((resolve) => {
-        const draw = () => {
-          const elapsed = (performance.now() - startedAt) / 1000;
+        const draw = (now: number) => {
+          if (now - lastFrameAt < 50) { requestAnimationFrame(draw); return; }
+          lastFrameAt = now;
+          const elapsed = (now - startedAt) / 1000;
           const amount = Math.min(elapsed / length, 1);
           drawFrame(amount);
-          setRenderProgress(Math.round(amount * 100));
+          const progressNow = Math.round(amount * 100);
+          if (progressNow >= lastProgress + 2 || progressNow === 100) {
+            lastProgress = progressNow;
+            setRenderProgress(progressNow);
+          }
           if (amount < 1) requestAnimationFrame(draw);
           else { media.requestData(); window.setTimeout(() => { media.stop(); resolve(); }, 150); }
         };
         requestAnimationFrame(draw);
       });
       await done;
-      audioElement.pause();
-      canvasStream.getTracks().forEach((track) => track.stop());
-      output.getTracks().forEach((track) => track.stop());
-      await audioContext.close();
-      URL.revokeObjectURL(audioUrl);
       const blob = new Blob(pieces, { type: mime || 'video/webm' });
       if (blob.size < 10_000) throw new Error('Rendered video is empty');
       const outputUrl = URL.createObjectURL(blob);
@@ -202,7 +213,16 @@ export default function App() {
       setStage('export');
       setStatus('తెలుగు ఆడియోతో వీడియో సిద్ధమైంది!');
       setProjects((items) => items.map((item, index) => index === 0 ? { ...item, status: 'Completed' } : item));
-    } catch (error) { setStatus(error instanceof Error ? `Render failed: ${error.message}. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.` : 'Render failed. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.'); } finally { setIsRendering(false); }
+    } catch (error) {
+      setStatus(error instanceof Error ? `Render failed: ${error.message}. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.` : 'Render failed. Chrome లేదా Edgeలో మళ్లీ ప్రయత్నించండి.');
+    } finally {
+      audioElement?.pause();
+      canvasStream?.getTracks().forEach((track) => track.stop());
+      output?.getTracks().forEach((track) => track.stop());
+      if (audioContext && audioContext.state !== 'closed') await audioContext.close();
+      if (sourceAudioUrl) URL.revokeObjectURL(sourceAudioUrl);
+      setIsRendering(false);
+    }
   };
 
   return <div className="studio-app">
