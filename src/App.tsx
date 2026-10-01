@@ -9,6 +9,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 're
 import { CreationMode, demoImages, providers, Scene, StoryResult } from './studio/providers';
 
 type Stage = 'idea' | 'story' | 'images' | 'voice' | 'editor' | 'export';
+type VideoTemplate = 'cinematic' | 'comedy' | 'mini-story' | 'split-call';
 type Project = { id: string; title: string; mode: string; status: 'Draft' | 'Completed'; date: string; duration: number; image: string };
 
 const modes: { id: CreationMode; title: string; sub: string; icon: typeof Video; tone: string }[] = [
@@ -45,10 +46,11 @@ export default function App() {
   const [dialect, setDialect] = useState('సహజ సంభాషణ');
   const [format, setFormat] = useState<'9:16' | '16:9' | '1:1'>('9:16');
   const [duration, setDuration] = useState('30 sec');
+  const [template, setTemplate] = useState<VideoTemplate>('cinematic');
   const [story, setStory] = useState<StoryResult | null>(null);
   const [choice, setChoice] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [uploadedVideo, setUploadedVideo] = useState<string | null>(null);
   const [uploadedVideoPoster, setUploadedVideoPoster] = useState<string | null>(null);
   const [videoName, setVideoName] = useState('');
@@ -71,18 +73,18 @@ export default function App() {
   const chunks = useRef<Blob[]>([]);
   const dragged = useRef<number | null>(null);
   const activeMode = modes.find((item) => item.id === mode)!;
-  const usesUploadedImageForVideo = ['image-video', 'ai-image', 'funny'].includes(mode);
-  const visibleStages = usesUploadedImageForVideo ? stages.filter((item) => item !== 'images') : stages;
+  const usesUploadedImagesForVideo = ['image-video', 'ai-image', 'funny'].includes(mode);
+  const visibleStages = usesUploadedImagesForVideo ? stages.filter((item) => item !== 'images') : stages;
   const script = story?.scenes.map((scene) => scene.dialogue).join(' ') || '';
   const totalDuration = useMemo(() => story?.scenes.reduce((sum, scene) => sum + scene.duration, 0) || 0, [story]);
 
   useEffect(() => localStorage.setItem('telugu-studio-projects', JSON.stringify(projects)), [projects]);
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
 
-  const chooseMode = (id: CreationMode) => { setMode(id); setStage('idea'); setSystemVoicePreviewed(false); document.querySelector('#creator')?.scrollIntoView({ behavior: 'smooth' }); };
+  const chooseMode = (id: CreationMode) => { setMode(id); if (id === 'funny') setTemplate('comedy'); setStage('idea'); setSystemVoicePreviewed(false); document.querySelector('#creator')?.scrollIntoView({ behavior: 'smooth' }); };
   const generate = async () => {
     if (prompt.trim().length < 12) return setStatus('కథ ఆలోచనను కొంచెం వివరంగా రాయండి.');
-    if (['image-story', 'image-audio', 'image-video', 'ai-image', 'funny'].includes(mode) && !uploadedImage) return setStatus('ముందుగా ఒక చిత్రాన్ని అప్‌లోడ్ చేయండి.');
+    if (['image-story', 'image-audio', 'image-video', 'ai-image', 'funny'].includes(mode) && !uploadedImages.length) return setStatus('ముందుగా ఒక చిత్రాన్ని అప్‌లోడ్ చేయండి.');
     if (mode === 'video-story' && !uploadedVideo) return setStatus('ముందుగా ఒక వీడియోను అప్‌లోడ్ చేయండి.');
     setIsGenerating(true);
     setSystemVoicePreviewed(false);
@@ -90,8 +92,12 @@ export default function App() {
       const resultPromise = providers.llm.generateStory(prompt, mode, dialect);
       for (let i = 0; i < progress.length; i += 1) { setProgressIndex(i); setStatus(progress[i]); await wait(330); }
       const result = await resultPromise;
-      if (uploadedImage && usesUploadedImageForVideo) result.scenes = result.scenes.map((scene) => ({ ...scene, image: uploadedImage }));
-      else if (uploadedImage) result.scenes[0].image = uploadedImage;
+      const targetDuration = Number.parseInt(duration, 10);
+      const secondsPerScene = Math.floor(targetDuration / result.scenes.length);
+      const remainingSeconds = targetDuration % result.scenes.length;
+      result.scenes = result.scenes.map((scene, index) => ({ ...scene, duration: secondsPerScene + (index < remainingSeconds ? 1 : 0) }));
+      if (uploadedImages.length && usesUploadedImagesForVideo) result.scenes = result.scenes.map((scene, index) => ({ ...scene, image: uploadedImages[index % uploadedImages.length] }));
+      else if (uploadedImages.length) result.scenes[0].image = uploadedImages[0];
       if (uploadedVideoPoster && mode === 'video-story') result.scenes = result.scenes.map((scene) => ({ ...scene, image: uploadedVideoPoster }));
       setStory(result); setStage('story'); setStatus('కథ సిద్ధమైంది. ప్రతి సన్నివేశాన్ని మార్చుకోవచ్చు.');
       setProjects((items) => [{ id: crypto.randomUUID(), title: result.title, mode: activeMode.title, status: 'Draft', date: new Date().toLocaleDateString('en-IN'), duration: result.scenes.reduce((a, b) => a + b.duration, 0), image: result.scenes[0].image }, ...items.filter((item) => !item.id.startsWith('demo'))]);
@@ -99,7 +105,14 @@ export default function App() {
   };
   const updateScene = (id: string, field: keyof Scene, value: string | number) => { if (field === 'dialogue') setSystemVoicePreviewed(false); setStory((valueNow) => valueNow ? { ...valueNow, scenes: valueNow.scenes.map((scene) => scene.id === id ? { ...scene, [field]: value } : scene) } : valueNow); };
   const drop = (event: DragEvent, index: number) => { event.preventDefault(); if (!story || dragged.current === null) return; const list = [...story.scenes]; const [item] = list.splice(dragged.current, 1); list.splice(index, 0, item); setStory({ ...story, scenes: list }); dragged.current = null; };
-  const imageUpload = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) return setStatus('10 MB లోపు JPG, PNG లేదా WEBP చిత్రాన్ని ఎంచుకోండి.'); if (uploadedImage) URL.revokeObjectURL(uploadedImage); setUploadedImage(URL.createObjectURL(file)); setStatus(`${file.name} సిద్ధంగా ఉంది. రూపొందే కథ కల్పితం.`); };
+  const imageUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).slice(0, 6);
+    if (!files.length) return;
+    if (files.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024)) return setStatus('ఒక్కోటి 10 MB లోపు JPG, PNG లేదా WEBP చిత్రాలను ఎంచుకోండి.');
+    uploadedImages.forEach((url) => URL.revokeObjectURL(url));
+    setUploadedImages(files.map((file) => URL.createObjectURL(file)));
+    setStatus(`${files.length} image${files.length > 1 ? 's' : ''} ready. Each scene will use your pictures.`);
+  };
   const videoUpload = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.type) || file.size > 100 * 1024 * 1024) return setStatus('100 MB లోపు MP4, WebM లేదా MOV వీడియోను ఎంచుకోండి.'); if (uploadedVideo) URL.revokeObjectURL(uploadedVideo); const url = URL.createObjectURL(file); setUploadedVideo(url); setUploadedVideoPoster(null); setVideoName(file.name); const source = document.createElement('video'); source.muted = true; source.preload = 'metadata'; source.src = url; source.onloadedmetadata = () => { source.currentTime = Math.min(.2, source.duration || .2); }; source.onseeked = () => { const canvas = document.createElement('canvas'); canvas.width = source.videoWidth || 1280; canvas.height = source.videoHeight || 720; canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height); setUploadedVideoPoster(canvas.toDataURL('image/jpeg', .88)); }; setStatus(`${file.name} సిద్ధంగా ఉంది. వీడియో ఆధారంగా కల్పిత కథ రూపొందుతుంది.`); };
   const audioUpload = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file || !file.type.startsWith('audio/')) return setStatus('చెల్లుబాటు అయ్యే ఆడియో ఫైల్‌ను ఎంచుకోండి.'); setAudio(file); setAudioName(file.name); setStatus('మీ ఒరిజినల్ ఆడియో సిద్ధంగా ఉంది.'); };
   const startRecording = async () => { try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); chunks.current = []; const rec = new MediaRecorder(stream); recorder.current = rec; rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data); rec.onstop = () => { setAudio(new Blob(chunks.current, { type: 'audio/webm' })); setAudioName('Recorded Telugu narration.webm'); setRecording(false); stream.getTracks().forEach((track) => track.stop()); }; rec.start(); setRecording(true); setStatus('రికార్డింగ్ జరుగుతోంది...'); } catch { setStatus('మైక్రోఫోన్ అనుమతి లభించలేదు.'); } };
@@ -130,23 +143,55 @@ export default function App() {
       const shade = ctx.createLinearGradient(0, canvas.height * .5, 0, canvas.height);
       shade.addColorStop(0, 'transparent');
       shade.addColorStop(1, 'rgba(0,0,0,.88)');
+      const drawCover = (image: HTMLImageElement, top: number, height: number, zoom: number, offsetX: number, offsetY: number) => {
+        const scale = Math.max(canvas.width / image.width, height / image.height) * zoom;
+        const width = image.width * scale;
+        const drawnHeight = image.height * scale;
+        const x = (canvas.width - width) / 2 + offsetX;
+        const y = top + (height - drawnHeight) / 2 + offsetY;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, top, canvas.width, height);
+        ctx.clip();
+        ctx.drawImage(image, x, y, width, drawnHeight);
+        ctx.restore();
+      };
       const drawFrame = (amount: number) => {
         const raw = amount * story.scenes.length;
         const index = Math.min(Math.floor(raw), story.scenes.length - 1);
         const local = Math.min(raw - index, 1);
         const image = images[index];
         const scene = story.scenes[index];
-        const scale = Math.max(canvas.width / image.width, canvas.height / image.height) * (1.03 + local * .07);
-        const width = image.width * scale;
-        const height = image.height * scale;
         const direction = index % 2 === 0 ? -1 : 1;
-        const x = (canvas.width - width) / 2 + direction * (local - .5) * canvas.width * .06;
-        const y = (canvas.height - height) / 2 + Math.sin(local * Math.PI) * canvas.height * .018;
+        const zoomAmount = template === 'mini-story' ? .035 : .07;
+        const zoom = 1.03 + local * zoomAmount;
+        const offsetX = direction * (local - .5) * canvas.width * .06;
+        const offsetY = Math.sin(local * Math.PI) * canvas.height * .018;
         ctx.fillStyle = '#080a08';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(image, x, y, width, height);
+        if (template === 'split-call' && amount < .82) {
+          const panelHeight = canvas.height / 2 - 3;
+          drawCover(image, 0, panelHeight, zoom, offsetX, offsetY / 2);
+          drawCover(images[(index + 1) % images.length], panelHeight + 6, panelHeight, zoom, -offsetX, -offsetY / 2);
+          ctx.fillStyle = '#080a08';
+          ctx.fillRect(0, panelHeight, canvas.width, 6);
+        } else {
+          drawCover(image, 0, canvas.height, zoom, offsetX, offsetY);
+        }
         ctx.fillStyle = shade;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (template === 'comedy' && amount > .78) {
+          ctx.textAlign = 'center';
+          ctx.font = `800 ${Math.max(34, canvas.width * .055)}px Inter, Nirmala UI, sans-serif`;
+          ctx.fillStyle = '#eff45f';
+          ctx.strokeStyle = '#4d164d';
+          ctx.lineWidth = 12;
+          wrap(ctx, scene.title, canvas.width * .78).forEach((line, lineIndex) => {
+            const textY = canvas.height * .72 + lineIndex * 55;
+            ctx.strokeText(line, canvas.width / 2, textY);
+            ctx.fillText(line, canvas.width / 2, textY);
+          });
+        }
         if (subtitle !== 'None') {
           ctx.textAlign = 'center';
           ctx.font = `700 ${Math.max(28, canvas.width * .035)}px Inter, Nirmala UI, sans-serif`;
@@ -181,7 +226,7 @@ export default function App() {
       const pieces: Blob[] = [];
       media.ondataavailable = (event) => { if (event.data.size) pieces.push(event.data); };
       const done = new Promise<void>((resolve, reject) => { media.onstop = () => resolve(); media.onerror = () => reject(new Error('Media recorder failed')); });
-      const length = Math.max(3, Math.min(totalDuration, 18));
+      const length = Math.max(3, Math.min(totalDuration, 60));
       const startedAt = performance.now();
       let lastFrameAt = 0;
       let lastProgress = 0;
@@ -240,11 +285,11 @@ export default function App() {
         <section className="content modes"><div className="section-title"><div><em>START CREATING</em><h2>మీరు ఏం సృష్టించాలనుకుంటున్నారు?</h2></div><p>Choose a workflow. Edit every scene before rendering.</p></div><div className="mode-grid">{modes.map((item) => { const Icon = item.icon; return <button className={`${item.tone} ${mode === item.id ? 'selected' : ''}`} onClick={() => chooseMode(item.id)} key={item.id}><i><Icon /></i><span><b>{item.title}</b><small>{item.sub}</small></span><ChevronRight /></button>; })}</div></section>
         <section className="creator" id="creator"><div className="creator-head"><div><em>CREATE WORKFLOW</em><h2>{activeMode.title}</h2></div><div className="steps">{visibleStages.map((item, index) => <button className={stage === item ? 'active' : ''} disabled={!story && index > 0} onClick={() => setStage(item)} key={item}><i>{index + 1}</i>{item}</button>)}</div></div>
           <div className="workspace">
-            {stage === 'idea' && <Idea mode={mode} prompt={prompt} setPrompt={setPrompt} dialect={dialect} setDialect={setDialect} duration={duration} setDuration={setDuration} format={format} setFormat={setFormat} uploadedImage={uploadedImage} imageUpload={imageUpload} uploadedVideo={uploadedVideo} videoName={videoName} videoUpload={videoUpload} audioName={audioName} audioUpload={audioUpload} status={status} generating={isGenerating} progressIndex={progressIndex} generate={generate} />}
-            {stage === 'story' && story && <Story story={story} setStory={setStory} updateScene={updateScene} dragged={dragged} drop={drop} regenerate={generate} next={() => setStage(usesUploadedImageForVideo ? 'voice' : 'images')} nextLabel={usesUploadedImageForVideo ? 'Continue with my image' : 'Continue to images'} />}
+            {stage === 'idea' && <Idea mode={mode} prompt={prompt} setPrompt={setPrompt} dialect={dialect} setDialect={setDialect} duration={duration} setDuration={setDuration} format={format} setFormat={setFormat} template={template} setTemplate={setTemplate} uploadedImages={uploadedImages} imageUpload={imageUpload} uploadedVideo={uploadedVideo} videoName={videoName} videoUpload={videoUpload} audioName={audioName} audioUpload={audioUpload} status={status} generating={isGenerating} progressIndex={progressIndex} generate={generate} />}
+            {stage === 'story' && story && <Story story={story} setStory={setStory} updateScene={updateScene} dragged={dragged} drop={drop} regenerate={generate} next={() => setStage(usesUploadedImagesForVideo ? 'voice' : 'images')} nextLabel={usesUploadedImagesForVideo ? 'Continue with my images' : 'Continue to images'} />}
             {stage === 'images' && story && <Images choice={choice} setChoice={setChoice} setPreview={setPreview} setStatus={setStatus} back={() => setStage('story')} next={() => { setStory({ ...story, scenes: story.scenes.map((scene, index) => ({ ...scene, image: demoImages[(choice + index) % 4] })) }); setStage('voice'); }} />}
             {stage === 'voice' && story && <Voice story={story} updateScene={updateScene} speak={speak} voice={voice} setVoice={setVoice} voiceStyle={voiceStyle} setVoiceStyle={setVoiceStyle} speed={speed} setSpeed={setSpeed} recording={recording} startRecording={startRecording} stop={() => recorder.current?.stop()} audio={audio} audioName={audioName} audioUpload={audioUpload} systemVoicePreviewed={systemVoicePreviewed} next={() => setStage('editor')} />}
-            {stage === 'editor' && story && <Editor story={story} format={format} subtitle={subtitle} setSubtitle={setSubtitle} speak={speak} status={status} hasAudio={Boolean(audio)} usesSystemVoice={systemVoicePreviewed && !audio} recording={recording} startRecording={startRecording} stopRecording={() => recorder.current?.stop()} rendering={isRendering} renderProgress={renderProgress} render={render} />}
+            {stage === 'editor' && story && <Editor story={story} format={format} template={template} subtitle={subtitle} setSubtitle={setSubtitle} speak={speak} status={status} hasAudio={Boolean(audio)} usesSystemVoice={systemVoicePreviewed && !audio} recording={recording} startRecording={startRecording} stopRecording={() => recorder.current?.stop()} rendering={isRendering} renderProgress={renderProgress} render={render} />}
             {stage === 'export' && story && <Export story={story} videoUrl={videoUrl} audio={audio} audioName={audioName} script={script} total={totalDuration} format={format} reset={() => { setStory(null); setStage('idea'); setVideoUrl(''); }} />}
           </div>
         </section>
@@ -255,8 +300,33 @@ export default function App() {
   </div>;
 }
 
-type IdeaProps = { mode: CreationMode; prompt: string; setPrompt: (v: string) => void; dialect: string; setDialect: (v: string) => void; duration: string; setDuration: (v: string) => void; format: '9:16' | '16:9' | '1:1'; setFormat: (v: '9:16' | '16:9' | '1:1') => void; uploadedImage: string | null; imageUpload: (e: ChangeEvent<HTMLInputElement>) => void; uploadedVideo: string | null; videoName: string; videoUpload: (e: ChangeEvent<HTMLInputElement>) => void; audioName: string; audioUpload: (e: ChangeEvent<HTMLInputElement>) => void; status: string; generating: boolean; progressIndex: number; generate: () => void };
-function Idea(p: IdeaProps) { const needsImage = ['image-story', 'image-audio', 'image-video', 'ai-image', 'funny'].includes(p.mode); const uploadTitle = p.mode === 'funny' ? 'Upload a funny picture' : p.mode === 'ai-image' ? 'Browse an image to animate' : 'Upload JPG, PNG or WEBP'; return <div className="idea-grid"><div className="prompt-box"><label>మీ కథ ఆలోచన <span>{p.prompt.length}/1200</span></label><textarea maxLength={1200} value={p.prompt} onChange={(e) => p.setPrompt(e.target.value)} /><div className="prompt-tools"><button onClick={() => p.setPrompt(sample)}><Sparkles /> Funny idea</button><button onClick={() => p.setPrompt('వర్షంలో బస్ కోసం ఎదురుచూస్తున్న వ్యక్తికి ఒక టీ కొట్టు యజమాని చెప్పిన మాట జీవితం మార్చుతుంది.')}><RefreshCcw /> Inspire me</button></div>{needsImage && <><label className="upload"><Upload /><span><b>{p.uploadedImage ? 'Image ready - choose another' : uploadTitle}</b><small>JPG, PNG or WEBP up to 10 MB. The generated story is fictional.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={p.imageUpload} /></label>{p.uploadedImage && <div className="upload-preview"><img src={p.uploadedImage} alt="Uploaded preview" /><span><Check /> This image will be used</span></div>}</>}{p.mode === 'video-story' && <><label className="upload"><Video /><span><b>{p.videoName || 'Upload MP4, WebM or MOV'}</b><small>Max 100 MB. Add context in the prompt for better story results.</small></span><input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={p.videoUpload} /></label>{p.uploadedVideo && <div className="upload-preview"><video src={p.uploadedVideo} controls /><span><Check /> Video selected</span></div>}</>}{p.mode === 'image-audio' && <label className="upload"><Music2 /><span><b>{p.audioName || 'Upload original audio'}</b><small>Your voice is preserved.</small></span><input type="file" accept="audio/*" onChange={p.audioUpload} /></label>}</div><aside className="settings"><h3>Video settings</h3><label>Telugu style<select value={p.dialect} onChange={(e) => p.setDialect(e.target.value)}><option>సహజ సంభాషణ</option><option>తెలంగాణ తెలుగు</option><option>ఆంధ్ర తెలుగు</option><option>రాయలసీమ శైలి</option><option>Urban Hyderabad</option></select></label><label>Duration<div className="segments">{['15 sec', '30 sec', '60 sec'].map((v) => <button className={p.duration === v ? 'active' : ''} onClick={() => p.setDuration(v)} key={v}>{v}</button>)}</div></label><label>Format<div className="segments">{(['9:16', '16:9', '1:1'] as const).map((v) => <button className={p.format === v ? 'active' : ''} onClick={() => p.setFormat(v)} key={v}>{v}</button>)}</div></label><div className="estimate"><Sparkles /><span><b>Development preview</b><small>Local, private browser workflow</small></span></div></aside><footer><span><i className="dot" />{p.status}</span><button className="primary large" disabled={p.generating} onClick={p.generate}>{p.generating ? <LoaderCircle className="spin" /> : <WandSparkles />}{p.generating ? progress[p.progressIndex] : 'కథను రూపొందించండి'}</button></footer></div>; }
+type IdeaProps = { mode: CreationMode; prompt: string; setPrompt: (v: string) => void; dialect: string; setDialect: (v: string) => void; duration: string; setDuration: (v: string) => void; format: '9:16' | '16:9' | '1:1'; setFormat: (v: '9:16' | '16:9' | '1:1') => void; template: VideoTemplate; setTemplate: (v: VideoTemplate) => void; uploadedImages: string[]; imageUpload: (e: ChangeEvent<HTMLInputElement>) => void; uploadedVideo: string | null; videoName: string; videoUpload: (e: ChangeEvent<HTMLInputElement>) => void; audioName: string; audioUpload: (e: ChangeEvent<HTMLInputElement>) => void; status: string; generating: boolean; progressIndex: number; generate: () => void };
+function Idea(p: IdeaProps) {
+  const needsImage = ['image-story', 'image-audio', 'image-video', 'ai-image', 'funny'].includes(p.mode);
+  const uploadTitle = p.mode === 'funny' ? 'Upload comedy character pictures' : p.mode === 'ai-image' ? 'Browse images to animate' : 'Upload JPG, PNG or WEBP';
+  return <div className="idea-grid">
+    <div className="prompt-box">
+      <label>మీ కథ ఆలోచన <span>{p.prompt.length}/1200</span></label>
+      <textarea maxLength={1200} value={p.prompt} onChange={(e) => p.setPrompt(e.target.value)} />
+      <div className="prompt-tools"><button onClick={() => p.setPrompt(sample)}><Sparkles /> Funny idea</button><button onClick={() => p.setPrompt('వర్షంలో బస్ కోసం ఎదురుచూస్తున్న వ్యక్తికి ఒక టీ కొట్టు యజమాని చెప్పిన మాట జీవితం మార్చుతుంది.')}><RefreshCcw /> Inspire me</button></div>
+      {needsImage && <>
+        <label className="upload"><Upload /><span><b>{p.uploadedImages.length ? `${p.uploadedImages.length} images ready - choose again` : uploadTitle}</b><small>Select up to 6 JPG, PNG or WEBP files, 10 MB each.</small></span><input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={p.imageUpload} /></label>
+        {p.uploadedImages.length > 0 && <div className="upload-preview-grid">{p.uploadedImages.map((image, index) => <img src={image} alt={`Uploaded scene ${index + 1}`} key={image} />)}<span><Check /> Pictures will cycle through the scenes</span></div>}
+      </>}
+      {p.mode === 'video-story' && <><label className="upload"><Video /><span><b>{p.videoName || 'Upload MP4, WebM or MOV'}</b><small>Max 100 MB. Add context in the prompt for better story results.</small></span><input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={p.videoUpload} /></label>{p.uploadedVideo && <div className="upload-preview"><video src={p.uploadedVideo} controls /><span><Check /> Video selected</span></div>}</>}
+      {p.mode === 'image-audio' && <label className="upload"><Music2 /><span><b>{p.audioName || 'Upload original audio'}</b><small>Your voice is preserved.</small></span><input type="file" accept="audio/*" onChange={p.audioUpload} /></label>}
+    </div>
+    <aside className="settings">
+      <h3>Video settings</h3>
+      <label>Reference style<select value={p.template} onChange={(e) => p.setTemplate(e.target.value as VideoTemplate)}><option value="cinematic">Cinematic story</option><option value="comedy">Telugu comedy punchline</option><option value="mini-story">Warm mini story</option><option value="split-call">Split-screen phone story</option></select></label>
+      <label>Telugu style<select value={p.dialect} onChange={(e) => p.setDialect(e.target.value)}><option>సహజ సంభాషణ</option><option>తెలంగాణ తెలుగు</option><option>ఆంధ్ర తెలుగు</option><option>రాయలసీమ శైలి</option><option>Urban Hyderabad</option></select></label>
+      <label>Duration<div className="segments">{['15 sec', '30 sec', '60 sec'].map((v) => <button className={p.duration === v ? 'active' : ''} onClick={() => p.setDuration(v)} key={v}>{v}</button>)}</div></label>
+      <label>Format<div className="segments">{(['9:16', '16:9', '1:1'] as const).map((v) => <button className={p.format === v ? 'active' : ''} onClick={() => p.setFormat(v)} key={v}>{v}</button>)}</div></label>
+      <div className="estimate"><Sparkles /><span><b>Browser render</b><small>Scene motion, Telugu audio and download</small></span></div>
+    </aside>
+    <footer><span><i className="dot" />{p.status}</span><button className="primary large" disabled={p.generating} onClick={p.generate}>{p.generating ? <LoaderCircle className="spin" /> : <WandSparkles />}{p.generating ? progress[p.progressIndex] : 'కథను రూపొందించండి'}</button></footer>
+  </div>;
+}
 
 type StoryProps = { story: StoryResult; setStory: (v: StoryResult) => void; updateScene: (id: string, field: keyof Scene, value: string | number) => void; dragged: React.MutableRefObject<number | null>; drop: (e: DragEvent, i: number) => void; regenerate: () => void; next: () => void; nextLabel: string };
 function Story(p: StoryProps) { return <div className="story"><header><div><em>AI STORY DRAFT</em><input value={p.story.title} onChange={(e) => p.setStory({ ...p.story, title: e.target.value })} /><p>{p.story.genre}</p></div><span>DEMO PROVIDER</span></header><label className="summary">Story summary<textarea value={p.story.summary} onChange={(e) => p.setStory({ ...p.story, summary: e.target.value })} /></label><div className="scene-list">{p.story.scenes.map((scene, index) => <article draggable onDragStart={() => { p.dragged.current = index; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => p.drop(e, index)} key={scene.id}><GripVertical /><img src={scene.image} alt="" /><div><em>SCENE {index + 1}</em><input value={scene.title} onChange={(e) => p.updateScene(scene.id, 'title', e.target.value)} /><textarea value={scene.description} onChange={(e) => p.updateScene(scene.id, 'description', e.target.value)} /><textarea className="dialogue" value={scene.dialogue} onChange={(e) => p.updateScene(scene.id, 'dialogue', e.target.value)} /></div><aside><label>Seconds<input type="number" min="2" max="20" value={scene.duration} onChange={(e) => p.updateScene(scene.id, 'duration', Number(e.target.value))} /></label><label>Camera<select value={scene.camera} onChange={(e) => p.updateScene(scene.id, 'camera', e.target.value)}><option>Slow push-in</option><option>Wide pan</option><option>Reaction close-up</option><option>Parallax</option></select></label><button className="icon" onClick={() => p.setStory({ ...p.story, scenes: p.story.scenes.filter((x) => x.id !== scene.id) })}><Trash2 /></button></aside></article>)}</div><footer><button className="secondary" onClick={p.regenerate}><RefreshCcw /> Regenerate story</button><button className="primary" onClick={p.next}>{p.nextLabel} <ChevronRight /></button></footer></div>; }
@@ -268,12 +338,14 @@ function Voice(p: VoiceProps) { const canContinue = Boolean(p.audio) || p.system
 
 function AudioPreview({ audio, name }: { audio: Blob; name: string }) { const url = useMemo(() => URL.createObjectURL(audio), [audio]); useEffect(() => () => URL.revokeObjectURL(url), [url]); return <div className="audio-ready"><AudioLines /><span><b>Audio ready</b><small>{name}</small><audio controls src={url} /></span><Check /></div>; }
 
-type EditorProps = { story: StoryResult; format: string; subtitle: string; setSubtitle: (value: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; recording: boolean; startRecording: () => void; stopRecording: () => void; rendering: boolean; renderProgress: number; render: () => void };
+type EditorProps = { story: StoryResult; format: string; template: VideoTemplate; subtitle: string; setSubtitle: (value: string) => void; speak: () => void; status: string; hasAudio: boolean; usesSystemVoice: boolean; recording: boolean; startRecording: () => void; stopRecording: () => void; rendering: boolean; renderProgress: number; render: () => void };
 function Editor(p: EditorProps) {
-  return <div className="editor">
-    <div className={`video-preview f-${p.format.replace(':', '')}`}>
+  return <div className={`editor template-${p.template}`}>
+    <div className={`video-preview f-${p.format.replace(':', '')} ${p.template === 'split-call' ? 'split-preview' : ''}`}>
       <img src={p.story.scenes[0].image} alt="Preview" />
+      {p.template === 'split-call' && <img src={p.story.scenes[1]?.image || p.story.scenes[0].image} alt="Second caller preview" />}
       <div />
+      {p.template === 'comedy' && <strong>{p.story.scenes[p.story.scenes.length - 1].title}</strong>}
       {p.subtitle !== 'None' && <p>{p.story.scenes[0].dialogue}</p>}
       <button onClick={p.speak}><Play fill="currentColor" /></button>
     </div>
